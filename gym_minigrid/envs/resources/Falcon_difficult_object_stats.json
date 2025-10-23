@@ -1,0 +1,22 @@
+{
+  "yellow_victim": {
+    "count": 10,
+    "category": "victim",
+    "description": "Yellow victim requiring immediate attention"
+  },
+  "green_victim": {
+    "count": 24,
+    "category": "victim",
+    "description": "Green victim with lower priority"
+  },
+  "wall": {
+    "count": 1186,
+    "category": "structure",
+    "description": "Wall that blocks movement"
+  },
+  "box": {
+    "count": 49,
+    "category": "interactive",
+    "description": "Box that can be toggled (jump action)"
+  }
+}
