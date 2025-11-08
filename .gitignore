@@ -1,3 +1,12 @@
+# Keep folders, ignore contents for trials and outputs
+data/trials/*
+!data/trials/README.md
+!data/trials/.gitkeep
+
+data/new_study_actions/**
+!data/new_study_actions/README.md
+!data/new_study_actions/.gitkeep
+
 # Virtual environment
 .venv/
 venv/

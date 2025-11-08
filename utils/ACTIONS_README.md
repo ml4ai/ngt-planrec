@@ -91,18 +91,7 @@ Files:
 - The extractor uses a unified 0.1 s clock per role and aligns discrete events by overwriting the nearest future state frame.
 - Large coordinate jumps detected between adjacent states are treated as idles in that step (to avoid encoding multi-step teleports as a single move). Downstream consumers may apply path interpolation if desired.
 
-## 8. Post-run analysis (optional)
-Two helper scripts:
-1) `utils/analyze_state_intervals.py`  
-   - Summarizes state timing, intervals, and can export state/action CSVs for a trial.
-2) `utils/analyze_action_sampling_stats.py`  
-   - Reports action distributions and adjacent Manhattan distance distributions under multiple sampling intervals (0.1/0.2/0.5/1.0 s).  
-   - Example:
-     ```bash
-     python utils/analyze_action_sampling_stats.py
-     ```
-
-## 9. Troubleshooting
+## 8. Troubleshooting
 - If outputs contain many `unknown` regions:
   - Verify coordinates fall inside the map bounds.
   - Ensure `Saturn_2.6_3D_sm_v1.0.json` is present and correctly formatted.
