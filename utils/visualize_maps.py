@@ -58,7 +58,16 @@ def render_env_from_map(base_name: str, tile_size: int = 8) -> None:
 
 def main() -> None:
     # Render both high-level maps and raw state overlays for reference
-    for base in ["SaturnA_2_3", "SaturnB_2_3", "raw_map_state_saturna", "raw_map_state_saturnb"]:
+    for base in [
+        "SaturnA_2_3",
+        "SaturnB_2_3",
+        "SaturnC_2_3",
+        "SaturnD_2_3",
+        "raw_map_state_saturna",
+        "raw_map_state_saturnb",
+        "raw_map_state_saturnc",
+        "raw_map_state_saturnd",
+    ]:
         render_env_from_map(base)
 
 

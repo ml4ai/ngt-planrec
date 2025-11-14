@@ -78,4 +78,6 @@ venv/
 .dmypy.json
 dmypy.json
 
+data/map_excel/~$*.xlsx
+
 
