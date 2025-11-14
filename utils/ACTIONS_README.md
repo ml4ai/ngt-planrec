@@ -27,7 +27,7 @@ python utils/new_study_action_extractor.py \
 
 Notes:
 - By default, the extractor processes all trials matched by `--metadata` (default glob above).
-- Allowed missions: `Saturn_A`, `Saturn_B`. Trials with other missions are skipped.
+- Allowed missions: `Saturn_A`, `Saturn_B`, `Saturn_C`, `Saturn_D`. Trials with other missions are skipped.
 - Topics considered:
   - `observations/state`
   - `observations/events/player/victim_picked_up`

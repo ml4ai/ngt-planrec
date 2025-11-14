@@ -10,7 +10,7 @@ Key features
 
 * Only topics relevant to movement and interaction are processed (player
   rubble-collapses are intentionally ignored).
-* Mission detection distinguishes between Saturn_A and Saturn_B.
+* Mission detection distinguishes among Saturn_A, Saturn_B, Saturn_C, and Saturn_D.
 * Per-trial output folders contain:
   - One JSON file per role (medic, engineer, transporter) with action events.
   - A victim history JSON capturing initialization and state changes.
@@ -108,8 +108,8 @@ ACTION_LABELS = {
     DROP_CODE: f"drop victim ({DROP_CODE})",
 }
 
-# Allowed missions for the new study
-ALLOWED_MISSIONS = {"Saturn_A", "Saturn_B"}
+# Allowed missions for the new study (A/B/C/D variants are now supported)
+ALLOWED_MISSIONS = {"Saturn_A", "Saturn_B", "Saturn_C", "Saturn_D"}
 
 # Mission timer threshold (seconds) after which sampling begins
 MISSION_TIMER_THRESHOLD_SECONDS = 15 * 60
@@ -723,10 +723,12 @@ def extract_mission(entry: Dict[str, object]) -> Optional[Tuple[str, str]]:
 
 
 def normalize_mission(value: str) -> Optional[str]:
+    """Normalize free-form mission strings to canonical Saturn tags."""
+
     cleaned = value.strip()
     if not cleaned:
         return None
-    match = re.search(r"saturn[\s_\-]*([ab])", cleaned, re.IGNORECASE)
+    match = re.search(r"saturn[\s_\-]*([abcd])", cleaned, re.IGNORECASE)
     if match:
         return f"Saturn_{match.group(1).upper()}"
     return None
