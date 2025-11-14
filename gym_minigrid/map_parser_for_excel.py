@@ -27,8 +27,10 @@ non-obvious implementation details.
 
 from __future__ import annotations
 
+import csv
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple, Any, List
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 from openpyxl import load_workbook
@@ -46,9 +48,63 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "map_excel"
 RESOURCES_DIR = (Path(__file__).parent / "./envs/resources").resolve()
 
-# Workbook and sheet configuration
+# Workbook configuration
 WORKBOOK_PATH = DATA_DIR / "asist_map.xlsx"
-SHEET_NAMES = ("SaturnA_2.3", "SaturnB_2.3")
+
+
+@dataclass(frozen=True)
+class MapConfig:
+    """Configuration describing how to assemble a single Saturn map."""
+
+    name: str
+    sheet_name: str
+    csv_filename: str
+    raw_state_basename: str
+
+    @property
+    def csv_path(self) -> Path:
+        return DATA_DIR / self.csv_filename
+
+
+@dataclass(frozen=True)
+class MapBlock:
+    """Row parsed from a MapBlocks CSV file."""
+
+    x: int
+    y: int
+    z: int
+    block_type: str
+    feature_type: str
+
+
+MAP_CONFIGS: Tuple[MapConfig, ...] = (
+    MapConfig(
+        name="SaturnA_2_3",
+        sheet_name="SaturnA_2.3",
+        csv_filename="MapBlocks_SaturnA_2.3_xyz.csv",
+        raw_state_basename="raw_map_state_saturna",
+    ),
+    MapConfig(
+        name="SaturnB_2_3",
+        sheet_name="SaturnB_2.3",
+        csv_filename="MapBlocks_SaturnB_2.3_xyz.csv",
+        raw_state_basename="raw_map_state_saturnb",
+    ),
+    # SaturnC and SaturnD reuse SaturnA/B structural layouts respectively; only
+    # their interactive features differ, and those are injected from CSV.
+    MapConfig(
+        name="SaturnC_2_3",
+        sheet_name="SaturnA_2.3",
+        csv_filename="MapBlocks_SaturnC_2.3_xyz.csv",
+        raw_state_basename="raw_map_state_saturnc",
+    ),
+    MapConfig(
+        name="SaturnD_2_3",
+        sheet_name="SaturnB_2.3",
+        csv_filename="MapBlocks_SaturnD_2.3_xyz.csv",
+        raw_state_basename="raw_map_state_saturnd",
+    ),
+)
 
 # Coordinate system from Excel range C5:EK80 (1-based). We detect the
 # content origin, but for exact control we set explicit offsets:
@@ -217,31 +273,10 @@ def _normalize_token(val: Optional[str]) -> str:
 def symbol_to_minigrid(token: str) -> int:
     """Map a normalized token to a MiniGrid integer id.
 
-    The mapping follows project conventions while reusing existing ids
-    to remain compatible with `gym_minigrid.numpymap` rendering:
-    - A, B, C: different victim goals (81/82/83)
-    - X: collapse plate / threat collapse → hazard (lava id 9)
-    - D: falling rubble → hazard (lava id 9)
-    - T: freezing threat → hazard (lava id 9)
-    - P: victim detection plate → interactable plate (box id 255)
-    - F: object → generic object (box id 255)
-    - R, RR, RRR: rubble layers → walls (4 or 30 for heavier rubble)
-    - empty/other: walkable empty (1)
+    The Excel sheets now only contribute structural information (walls/rubble)
+    and static props (``F`` blocks). All interactive entities (victims, signals,
+    hazards) are sourced from the MapBlocks CSV overlay.
     """
-    if token == "A":
-        return GOAL_A
-    if token == "B":
-        return GOAL_B
-    if token == "C":
-        return GOAL_C
-    if token in {"X"}:  # red collapse (render as red box rather than lava)
-        return BOX_RED
-    if token == "D":  # falling rubble → dark blue box
-        return BOX_DARK_BLUE
-    if token == "T":  # freezing threat → treat as hazard
-        return LAVA
-    if token == "P":  # victim detection plate → light blue
-        return BOX_LIGHT_BLUE
     if token == "F":  # object → light brown
         return BOX
     if token in {"RRR", "RR", "R"}:  # rubble → light grey wall
@@ -279,16 +314,15 @@ def find_content_origin(sheet) -> Tuple[int, int]:
     return EXCEL_RANGE_START[0], EXCEL_RANGE_START[1]
 
 
-def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
-    """Parse one Saturn sheet into a MiniGrid numpy array and save it.
+_BASE_GRID_CACHE: Dict[str, np.ndarray] = {}
 
-    Parameters
-    ----------
-    sheet_name: str
-        Name of the sheet in the workbook to parse.
-    save_basename: str
-        Basename for the output files (without extension). Two files are
-        produced: `<basename>.npy` and `raw_map_state_<suffix>.npy`.
+
+def build_base_grid(sheet_name: str) -> np.ndarray:
+    """Parse a Saturn Excel sheet into a base MiniGrid numpy array.
+
+    The returned grid only contains structural elements coming from the sheet
+    (walls, rubble, object markers). Dynamic gameplay entities are added later
+    from the MapBlocks CSV overlay.
     """
     wb = load_workbook(WORKBOOK_PATH, data_only=True)
     if sheet_name not in wb.sheetnames:
@@ -413,26 +447,130 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     grid[:, 0] = WALL
     grid[:, -1] = WALL
 
-    # Build raw_map_state: walkable=1, walls=4; goals/boxes remain walkable
-    raw_map_state = (grid.copy()).astype(np.int32)
-    raw_map_state[raw_map_state == BOX] = EMPTY
-    raw_map_state[raw_map_state == GOAL_A] = EMPTY
-    raw_map_state[raw_map_state == GOAL_B] = EMPTY
-    raw_map_state[raw_map_state == GOAL_C] = EMPTY
-    raw_map_state[raw_map_state == LAVA] = WALL  # keep generic hazards blocked if any
-    raw_map_state[raw_map_state == WALL_HEAVY] = WALL
-    raw_map_state[raw_map_state == WALL_LIGHT] = WALL
+    return grid
 
-    # Save outputs
+
+def _get_base_grid(sheet_name: str) -> np.ndarray:
+    """Return a copy of the cached base grid for the given sheet."""
+    if sheet_name not in _BASE_GRID_CACHE:
+        _BASE_GRID_CACHE[sheet_name] = build_base_grid(sheet_name)
+    return _BASE_GRID_CACHE[sheet_name].copy()
+
+
+def _parse_location_xyz(value: str) -> Tuple[int, int, int]:
+    """Decode a `LocationXYZ` string such as `-2215 59 58` into integers."""
+    parts = value.replace(",", " ").split()
+    if len(parts) < 3:
+        raise ValueError(f"Invalid LocationXYZ '{value}'")
+    x, y, z = (int(parts[0]), int(parts[1]), int(parts[2]))
+    return x, y, z
+
+
+def _world_to_indices(x: int, z: int) -> Optional[Tuple[int, int]]:
+    """Convert world coordinates (x, z) into grid row/column indices."""
+    row = z - TOP_LEFT[1]
+    col = x - TOP_LEFT[0]
+    if 0 <= row < GRID_HEIGHT and 0 <= col < GRID_WIDTH:
+        return row, col
+    return None
+
+
+def load_map_blocks(csv_path: Path) -> List[MapBlock]:
+    """Load MapBlocks rows from the provided CSV file."""
+    if not csv_path.exists():
+        raise FileNotFoundError(f"MapBlocks CSV not found: {csv_path}")
+
+    entries: List[MapBlock] = []
+    with csv_path.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            location_raw = row.get("LocationXYZ")
+            block_type = (row.get("BlockType") or "").strip()
+            feature_type = (row.get("FeatureType") or "").strip()
+            if not location_raw or not block_type:
+                continue
+            try:
+                x, y, z = _parse_location_xyz(location_raw)
+            except ValueError:
+                continue
+            entries.append(MapBlock(x=x, y=y, z=z, block_type=block_type, feature_type=feature_type))
+    return entries
+
+
+VICTIM_FEATURE_TO_TILE: Dict[str, int] = {
+    "victim a": GOAL_A,
+    "victim b": GOAL_B,
+    "victim c": GOAL_C,
+}
+
+
+def block_entry_to_tile(entry: MapBlock) -> Optional[int]:
+    """Translate a MapBlock entry into the MiniGrid tile id to paint."""
+    block = entry.block_type.lower()
+    feature = entry.feature_type.lower()
+
+    if block == "gravel":
+        return None
+    if block == "block_signal_victim":
+        return BOX_LIGHT_BLUE
+    if block == "block_victim_proximity":
+        victim_tile = VICTIM_FEATURE_TO_TILE.get(feature)
+        return victim_tile if victim_tile is not None else BOX_LIGHT_BLUE
+    if block == "block_rubble_collapse":
+        return LAVA
+    if block.startswith("block_victim_1"):
+        return VICTIM_FEATURE_TO_TILE.get(feature)
+    return None
+
+
+def overlay_map_blocks(grid: np.ndarray, blocks: List[MapBlock]) -> None:
+    """Mutate the grid in-place by painting tiles from MapBlocks entries."""
+    for entry in blocks:
+        tile = block_entry_to_tile(entry)
+        if tile is None:
+            continue
+        indices = _world_to_indices(entry.x, entry.z)
+        if indices is None:
+            continue
+        row, col = indices
+        grid[row, col] = tile
+
+
+def build_raw_map_state(grid: np.ndarray) -> np.ndarray:
+    """Return a raw walkable-state array mirroring MiniGrid wall semantics."""
+    raw = grid.copy().astype(np.int32)
+    raw[raw == BOX] = EMPTY
+    raw[raw == BOX_LIGHT_BLUE] = EMPTY
+    raw[raw == BOX_DARK_BLUE] = EMPTY
+    raw[raw == BOX_RED] = EMPTY
+    raw[raw == GOAL_A] = EMPTY
+    raw[raw == GOAL_B] = EMPTY
+    raw[raw == GOAL_C] = EMPTY
+    raw[raw == LAVA] = WALL
+    raw[raw == WALL_HEAVY] = WALL
+    raw[raw == WALL_LIGHT] = WALL
+    return raw
+
+
+def save_map_outputs(grid: np.ndarray, config: MapConfig) -> None:
+    """Persist the numpy arrays for a given configuration."""
     RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
-    out_map = RESOURCES_DIR / f"{save_basename}.npy"
+    out_map = RESOURCES_DIR / f"{config.name}.npy"
     np.save(out_map, grid)
 
-    out_state = RESOURCES_DIR / f"raw_map_state_{save_basename.split('_')[0].lower()}.npy"
-    np.save(out_state, raw_map_state)
+    raw_path = RESOURCES_DIR / f"{config.raw_state_basename}.npy"
+    np.save(raw_path, build_raw_map_state(grid))
 
-    print(f"Saved: {out_map}")
-    print(f"Saved: {out_state}")
+    print(f"Saved map: {out_map}")
+    print(f"Saved raw state: {raw_path}")
+
+
+def build_map_from_config(config: MapConfig) -> None:
+    """Assemble, overlay, and persist a single Saturn map."""
+    grid = _get_base_grid(config.sheet_name)
+    blocks = load_map_blocks(config.csv_path)
+    overlay_map_blocks(grid, blocks)
+    save_map_outputs(grid, config)
 
 
 def main() -> None:
@@ -443,13 +581,9 @@ def main() -> None:
     if not WORKBOOK_PATH.exists():
         raise FileNotFoundError(f"Workbook not found: {WORKBOOK_PATH}")
 
-    sheet_to_out: Dict[str, str] = {
-        "SaturnA_2.3": "SaturnA_2_3",
-        "SaturnB_2.3": "SaturnB_2_3",
-    }
-
-    for sheet_name in SHEET_NAMES:
-        parse_saturn_sheet(sheet_name, sheet_to_out[sheet_name])
+    for config in MAP_CONFIGS:
+        print(f"Building {config.name} (sheet={config.sheet_name}, csv={config.csv_filename})")
+        build_map_from_config(config)
 
 
 if __name__ == "__main__":
