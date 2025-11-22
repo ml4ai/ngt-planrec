@@ -315,7 +315,7 @@ def plot_level(
     level: str,
     graph: Mapping[str, Mapping[Direction, Sequence[str]]],
     bounds: Mapping[str, BoundingBox],
-    components: Sequence[Sequence[str]],
+    components: Sequence[Sequence[str]],  # kept for logging context, unused
     output_dir: Path,
 ) -> None:
     level_bounds = {node: bounds[node] for node in graph.keys() if node in bounds}
@@ -329,12 +329,6 @@ def plot_level(
     max_z = max(b.max_z for b in level_bounds.values())
     margin = 2.0
 
-    component_palette = plt.get_cmap("tab20", max(len(components), 1))
-    component_lookup: Dict[str, int] = {}
-    for idx, component in enumerate(components):
-        for node in component:
-            component_lookup[node] = idx
-
     fig, ax = plt.subplots(figsize=(14, 14))
     ax.set_aspect("equal", adjustable="box")
     ax.set_title(f"Saturn Connectivity Level {level}")
@@ -342,15 +336,13 @@ def plot_level(
     ax.set_ylabel("World Z coordinate (north is upward)")
 
     for node, bbox in level_bounds.items():
-        component_idx = component_lookup.get(node, 0)
-        base_color = component_palette(component_idx)
         rect = Rectangle(
             (bbox.min_x, bbox.min_z),
             bbox.width,
             bbox.height,
-            facecolor=(*base_color[:3], 0.08),
-            edgecolor=base_color,
-            linewidth=0.7,
+            facecolor=(0.8, 0.85, 0.93, 0.15),
+            edgecolor="#8aa1c1",
+            linewidth=0.6,
         )
         ax.add_patch(rect)
         cx, cz = bbox.center
@@ -414,14 +406,8 @@ def plot_level(
         Line2D([], [], color=color, lw=1.5, label=direction.title())
         for direction, color in ARROW_COLORS.items()
     ]
-    component_handles: List[Line2D] = []
-    for idx in range(min(len(components), 5)):
-        color = component_palette(idx)
-        component_handles.append(
-            Line2D([], [], color=color, lw=4, label=f"Component {idx+1}")
-        )
     legend = ax.legend(
-        handles=orientation_handles + component_handles,
+        handles=orientation_handles,
         fontsize=6,
         loc="upper right",
         frameon=False,
