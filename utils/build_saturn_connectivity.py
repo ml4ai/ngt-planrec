@@ -344,14 +344,15 @@ def plot_level(
     display_centers = {
         node: (cx * scale_factor, cz * scale_factor) for node, (cx, cz) in centers.items()
     }
+    display_radius = NODE_RADIUS * scale_factor
 
     xs = [cx for cx, _ in display_centers.values()]
     zs = [cz for _, cz in display_centers.values()]
     margin = 2.0 * scale_factor
-    min_x = min(xs) - (NODE_RADIUS + margin)
-    max_x = max(xs) + (NODE_RADIUS + margin)
-    min_z = min(zs) - (NODE_RADIUS + margin)
-    max_z = max(zs) + (NODE_RADIUS + margin)
+    min_x = min(xs) - (display_radius + margin)
+    max_x = max(xs) + (display_radius + margin)
+    min_z = min(zs) - (display_radius + margin)
+    max_z = max(zs) + (display_radius + margin)
 
     fig, ax = plt.subplots(figsize=(14, 14))
     ax.set_aspect("equal", adjustable="box")
@@ -365,7 +366,7 @@ def plot_level(
     for node, (cx, cz) in display_centers.items():
         circle = Circle(
             (cx, cz),
-            radius=NODE_RADIUS,
+            radius=display_radius,
             facecolor=(0.8, 0.85, 0.93, 0.35),
             edgecolor="#59759e",
             linewidth=0.6,
@@ -405,10 +406,10 @@ def plot_level(
                 dist = max((dx**2 + dz**2) ** 0.5, EPSILON)
                 norm_dx = dx / dist
                 norm_dz = dz / dist
-                start_x = src_cx + norm_dx * NODE_RADIUS
-                start_z = src_cz + norm_dz * NODE_RADIUS
-                end_x = dst_cx - norm_dx * NODE_RADIUS
-                end_z = dst_cz - norm_dz * NODE_RADIUS
+                start_x = src_cx + norm_dx * display_radius
+                start_z = src_cz + norm_dz * display_radius
+                end_x = dst_cx - norm_dx * display_radius
+                end_z = dst_cz - norm_dz * display_radius
                 ax.annotate(
                     "",
                     xy=(end_x, end_z),
