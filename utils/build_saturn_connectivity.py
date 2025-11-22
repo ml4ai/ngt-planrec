@@ -42,7 +42,7 @@ DIRECTION_LABELS: Mapping[Direction, str] = {
     "overlap": "•",
 }
 EPSILON = 1e-6
-NODE_RADIUS = 3.5
+NODE_RADIUS = 10.5
 
 
 @dataclass(frozen=True)
@@ -336,7 +336,7 @@ def plot_level(
                 positive_distances.append(dist)
 
     min_distance = min(positive_distances) if positive_distances else float("inf")
-    desired_spacing = (2 * NODE_RADIUS) + 1.0
+    desired_spacing = (2 * NODE_RADIUS) + max(5.0, NODE_RADIUS * 0.5)
     scale_factor = 1.0
     if min_distance < desired_spacing and min_distance > 0:
         scale_factor = desired_spacing / min_distance
