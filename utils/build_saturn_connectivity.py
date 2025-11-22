@@ -20,7 +20,7 @@ from typing import Dict, Iterable, List, Literal, Mapping, MutableMapping, Optio
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Circle, Rectangle
 
 
 LOGGER = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ DIRECTION_LABELS: Mapping[Direction, str] = {
     "overlap": "•",
 }
 EPSILON = 1e-6
+NODE_RADIUS = 1.0
 
 
 @dataclass(frozen=True)
@@ -336,16 +337,15 @@ def plot_level(
     ax.set_ylabel("World Z coordinate (north is upward)")
 
     for node, bbox in level_bounds.items():
-        rect = Rectangle(
-            (bbox.min_x, bbox.min_z),
-            bbox.width,
-            bbox.height,
-            facecolor=(0.8, 0.85, 0.93, 0.15),
-            edgecolor="#8aa1c1",
+        cx, cz = bbox.center
+        circle = Circle(
+            (cx, cz),
+            radius=NODE_RADIUS,
+            facecolor=(0.8, 0.85, 0.93, 0.35),
+            edgecolor="#59759e",
             linewidth=0.6,
         )
-        ax.add_patch(rect)
-        cx, cz = bbox.center
+        ax.add_patch(circle)
         ax.text(
             cx,
             cz,
