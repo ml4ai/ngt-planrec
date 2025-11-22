@@ -41,6 +41,7 @@ DIRECTION_LABELS: Mapping[Direction, str] = {
     "west": "W",
     "overlap": "•",
 }
+EPSILON = 1e-6
 
 
 @dataclass(frozen=True)
@@ -197,18 +198,18 @@ def load_adjacency(adjacency_path: Path) -> Dict[str, Dict[str, List[str]]]:
     return adjacency
 
 
-def describe_components(level: str, adjacency: Mapping[str, Sequence[str]]) -> None:
+def connected_components(adjacency: Mapping[str, Sequence[str]]) -> List[List[str]]:
     visited: set[str] = set()
-    component_sizes: List[int] = []
+    components: List[List[str]] = []
     for node in adjacency.keys():
         if node in visited:
             continue
         stack = [node]
         visited.add(node)
-        size = 0
+        component_nodes: List[str] = []
         while stack:
             current = stack.pop()
-            size += 1
+            component_nodes.append(current)
             for neighbor in adjacency.get(current, []):
                 if neighbor in visited:
                     continue
@@ -216,19 +217,23 @@ def describe_components(level: str, adjacency: Mapping[str, Sequence[str]]) -> N
                     continue
                 visited.add(neighbor)
                 stack.append(neighbor)
-        component_sizes.append(size)
+        components.append(component_nodes)
 
-    if not component_sizes:
+    return components
+
+
+def describe_components(level: str, components: Sequence[Sequence[str]]) -> None:
+    if not components:
         LOGGER.warning("Level %s contains no connected components", level)
         return
 
-    component_sizes.sort(reverse=True)
+    sizes = sorted((len(component) for component in components), reverse=True)
     LOGGER.info(
         "Level %s components: count=%d, largest=%d, median=%.1f",
         level,
-        len(component_sizes),
-        component_sizes[0],
-        median(component_sizes),
+        len(sizes),
+        sizes[0],
+        median(sizes),
     )
 
 
@@ -254,11 +259,12 @@ def infer_direction(src: BoundingBox, dst: BoundingBox) -> Direction:
     dx = dst_cx - src_cx
     dz = dst_cz - src_cz
 
-    if abs(dx) > abs(dz):
+    if abs(dx) < EPSILON and abs(dz) < EPSILON:
+        return "overlap"
+
+    if abs(dx) >= abs(dz):
         return "east" if dx > 0 else "west"
-    if abs(dz) > abs(dx):
-        return "south" if dz > 0 else "north"
-    return "overlap"
+    return "south" if dz > 0 else "north"
 
 
 def build_directional_graph(
@@ -309,6 +315,7 @@ def plot_level(
     level: str,
     graph: Mapping[str, Mapping[Direction, Sequence[str]]],
     bounds: Mapping[str, BoundingBox],
+    components: Sequence[Sequence[str]],
     output_dir: Path,
 ) -> None:
     level_bounds = {node: bounds[node] for node in graph.keys() if node in bounds}
@@ -322,22 +329,46 @@ def plot_level(
     max_z = max(b.max_z for b in level_bounds.values())
     margin = 2.0
 
-    fig, ax = plt.subplots(figsize=(12, 12))
+    component_palette = plt.get_cmap("tab20", max(len(components), 1))
+    component_lookup: Dict[str, int] = {}
+    for idx, component in enumerate(components):
+        for node in component:
+            component_lookup[node] = idx
+
+    fig, ax = plt.subplots(figsize=(14, 14))
     ax.set_aspect("equal", adjustable="box")
     ax.set_title(f"Saturn Connectivity Level {level}")
+    ax.set_xlabel("World X coordinate")
+    ax.set_ylabel("World Z coordinate (north is upward)")
 
     for node, bbox in level_bounds.items():
+        component_idx = component_lookup.get(node, 0)
+        base_color = component_palette(component_idx)
         rect = Rectangle(
             (bbox.min_x, bbox.min_z),
             bbox.width,
             bbox.height,
-            fill=False,
-            edgecolor="#cccccc",
-            linewidth=0.5,
+            facecolor=(*base_color[:3], 0.08),
+            edgecolor=base_color,
+            linewidth=0.7,
         )
         ax.add_patch(rect)
         cx, cz = bbox.center
-        ax.text(cx, cz, node, fontsize=4, ha="center", va="center")
+        ax.text(
+            cx,
+            cz,
+            node,
+            fontsize=4,
+            ha="center",
+            va="center",
+            color="#333333",
+            bbox=dict(
+                facecolor="white",
+                edgecolor="none",
+                alpha=0.6,
+                boxstyle="round,pad=0.1",
+            ),
+        )
 
     drawn_edges: set[Tuple[str, str]] = set()
     for src, orientation_map in graph.items():
@@ -379,11 +410,23 @@ def plot_level(
     ax.set_ylim(min_z - margin, max_z + margin)
     ax.invert_yaxis()  # align with top-left origin convention
     ax.grid(True, linewidth=0.2, color="#f0f0f0")
-    legend_handles = [
+    orientation_handles = [
         Line2D([], [], color=color, lw=1.5, label=direction.title())
         for direction, color in ARROW_COLORS.items()
     ]
-    ax.legend(handles=legend_handles, fontsize=6, loc="upper right", frameon=False)
+    component_handles: List[Line2D] = []
+    for idx in range(min(len(components), 5)):
+        color = component_palette(idx)
+        component_handles.append(
+            Line2D([], [], color=color, lw=4, label=f"Component {idx+1}")
+        )
+    legend = ax.legend(
+        handles=orientation_handles + component_handles,
+        fontsize=6,
+        loc="upper right",
+        frameon=False,
+    )
+    legend.set_title("Legend")
     output_dir.mkdir(parents=True, exist_ok=True)
     figure_path = output_dir / f"saturn_connectivity_level_{level}.png"
     fig.savefig(figure_path, dpi=300)
@@ -400,10 +443,11 @@ def main() -> None:
 
     level_graphs: Dict[str, Dict[str, Dict[str, List[str]]]] = {}
     for level, level_adj in adjacency.items():
-        describe_components(level, level_adj)
+        components = connected_components(level_adj)
+        describe_components(level, components)
         graph = build_directional_graph(level_adj, bounds)
         level_graphs[level] = graph
-        plot_level(level, graph, bounds, args.vis_dir)
+        plot_level(level, graph, bounds, components, args.vis_dir)
 
     save_graph(args.output, level_graphs, args.map, args.adjacency)
 
