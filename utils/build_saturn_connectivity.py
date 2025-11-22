@@ -20,7 +20,7 @@ from typing import Dict, Iterable, List, Literal, Mapping, MutableMapping, Optio
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.patches import Circle, Rectangle
+from matplotlib.patches import Rectangle
 
 
 LOGGER = logging.getLogger(__name__)
@@ -42,7 +42,6 @@ DIRECTION_LABELS: Mapping[Direction, str] = {
     "overlap": "•",
 }
 EPSILON = 1e-6
-NODE_RADIUS = 12.0
 
 
 @dataclass(frozen=True)
@@ -324,53 +323,29 @@ def plot_level(
         LOGGER.warning("No drawable bounds found for level %s", level)
         return
 
-    centers = {node: bounds[node].center for node in level_bounds}
-    positive_distances: List[float] = []
-    nodes = list(centers.items())
-    for idx, (node, (cx, cz)) in enumerate(nodes):
-        for _, (tx, tz) in nodes[idx + 1 :]:
-            dx = cx - tx
-            dz = cz - tz
-            dist = (dx * dx + dz * dz) ** 0.5
-            if dist > EPSILON:
-                positive_distances.append(dist)
-
-    min_distance = min(positive_distances) if positive_distances else float("inf")
-    desired_spacing = (2 * NODE_RADIUS) + max(8.0, NODE_RADIUS * 0.8)
-    scale_factor = 1.0
-    if min_distance < desired_spacing and min_distance > 0:
-        scale_factor = desired_spacing / min_distance
-
-    display_centers = {
-        node: (cx * scale_factor, cz * scale_factor) for node, (cx, cz) in centers.items()
-    }
-
-    xs = [cx for cx, _ in display_centers.values()]
-    zs = [cz for _, cz in display_centers.values()]
-    margin = 2.0 * scale_factor
-    min_x = min(xs) - (NODE_RADIUS + margin)
-    max_x = max(xs) + (NODE_RADIUS + margin)
-    min_z = min(zs) - (NODE_RADIUS + margin)
-    max_z = max(zs) + (NODE_RADIUS + margin)
+    min_x = min(b.min_x for b in level_bounds.values())
+    max_x = max(b.max_x for b in level_bounds.values())
+    min_z = min(b.min_z for b in level_bounds.values())
+    max_z = max(b.max_z for b in level_bounds.values())
+    margin = 2.0
 
     fig, ax = plt.subplots(figsize=(14, 14))
     ax.set_aspect("equal", adjustable="box")
-    title = f"Saturn Connectivity Level {level}"
-    if scale_factor > 1.01:
-        title += f" (scaled ×{scale_factor:.2f} for clarity)"
-    ax.set_title(title)
+    ax.set_title(f"Saturn Connectivity Level {level}")
     ax.set_xlabel("World X coordinate")
     ax.set_ylabel("World Z coordinate (north is upward)")
 
-    for node, (cx, cz) in display_centers.items():
-        circle = Circle(
-            (cx, cz),
-            radius=NODE_RADIUS,
-            facecolor=(0.8, 0.85, 0.93, 0.35),
-            edgecolor="#59759e",
+    for node, bbox in level_bounds.items():
+        rect = Rectangle(
+            (bbox.min_x, bbox.min_z),
+            bbox.width,
+            bbox.height,
+            facecolor=(0.8, 0.85, 0.93, 0.15),
+            edgecolor="#8aa1c1",
             linewidth=0.6,
         )
-        ax.add_patch(circle)
+        ax.add_patch(rect)
+        cx, cz = bbox.center
         ax.text(
             cx,
             cz,
@@ -389,36 +364,28 @@ def plot_level(
 
     drawn_edges: set[Tuple[str, str]] = set()
     for src, orientation_map in graph.items():
-        src_cx, src_cz = display_centers[src]
+        src_bbox = bounds[src]
+        src_cx, src_cz = src_bbox.center
         for direction, neighbors in orientation_map.items():
             color = ARROW_COLORS.get(direction, "#000000")
             for neighbor in neighbors:
                 key = tuple(sorted((src, neighbor)))
                 if key in drawn_edges:
                     continue
-                dst_center = display_centers.get(neighbor)
-                if dst_center is None:
+                dst_bbox = bounds.get(neighbor)
+                if dst_bbox is None:
                     continue
-                dst_cx, dst_cz = dst_center
-                dx = dst_cx - src_cx
-                dz = dst_cz - src_cz
-                dist = max((dx**2 + dz**2) ** 0.5, EPSILON)
-                norm_dx = dx / dist
-                norm_dz = dz / dist
-                start_x = src_cx + norm_dx * NODE_RADIUS
-                start_z = src_cz + norm_dz * NODE_RADIUS
-                end_x = dst_cx - norm_dx * NODE_RADIUS
-                end_z = dst_cz - norm_dz * NODE_RADIUS
+                dst_cx, dst_cz = dst_bbox.center
                 ax.annotate(
                     "",
-                    xy=(end_x, end_z),
-                    xytext=(start_x, start_z),
+                    xy=(dst_cx, dst_cz),
+                    xytext=(src_cx, src_cz),
                     arrowprops=dict(arrowstyle="->", color=color, linewidth=0.6, alpha=0.7),
                 )
                 label = DIRECTION_LABELS.get(direction)
                 if label:
-                    mid_x = (start_x + end_x) / 2.0
-                    mid_z = (start_z + end_z) / 2.0
+                    mid_x = (src_cx + dst_cx) / 2.0
+                    mid_z = (src_cz + dst_cz) / 2.0
                     ax.text(
                         mid_x,
                         mid_z,
