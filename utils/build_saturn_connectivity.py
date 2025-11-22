@@ -42,7 +42,7 @@ DIRECTION_LABELS: Mapping[Direction, str] = {
     "overlap": "•",
 }
 EPSILON = 1e-6
-NODE_RADIUS = 1.0
+NODE_RADIUS = 1.5
 
 
 @dataclass(frozen=True)
@@ -376,16 +376,25 @@ def plot_level(
                 if dst_bbox is None:
                     continue
                 dst_cx, dst_cz = dst_bbox.center
+                dx = dst_cx - src_cx
+                dz = dst_cz - src_cz
+                dist = max((dx**2 + dz**2) ** 0.5, EPSILON)
+                norm_dx = dx / dist
+                norm_dz = dz / dist
+                start_x = src_cx + norm_dx * NODE_RADIUS
+                start_z = src_cz + norm_dz * NODE_RADIUS
+                end_x = dst_cx - norm_dx * NODE_RADIUS
+                end_z = dst_cz - norm_dz * NODE_RADIUS
                 ax.annotate(
                     "",
-                    xy=(dst_cx, dst_cz),
-                    xytext=(src_cx, src_cz),
+                    xy=(end_x, end_z),
+                    xytext=(start_x, start_z),
                     arrowprops=dict(arrowstyle="->", color=color, linewidth=0.6, alpha=0.7),
                 )
                 label = DIRECTION_LABELS.get(direction)
                 if label:
-                    mid_x = (src_cx + dst_cx) / 2.0
-                    mid_z = (src_cz + dst_cz) / 2.0
+                    mid_x = (start_x + end_x) / 2.0
+                    mid_z = (start_z + end_z) / 2.0
                     ax.text(
                         mid_x,
                         mid_z,
