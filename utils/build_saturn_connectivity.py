@@ -42,7 +42,7 @@ DIRECTION_LABELS: Mapping[Direction, str] = {
     "overlap": "•",
 }
 EPSILON = 1e-6
-NODE_RADIUS = 2.5
+NODE_RADIUS = 3.5
 
 
 @dataclass(frozen=True)
