@@ -14,10 +14,12 @@ import argparse
 import json
 import logging
 from dataclasses import dataclass
+from statistics import median
 from pathlib import Path
 from typing import Dict, Iterable, List, Literal, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 
@@ -31,6 +33,13 @@ ARROW_COLORS: Mapping[Direction, str] = {
     "east": "#2ca02c",
     "west": "#ff7f0e",
     "overlap": "#7f7f7f",
+}
+DIRECTION_LABELS: Mapping[Direction, str] = {
+    "north": "N",
+    "south": "S",
+    "east": "E",
+    "west": "W",
+    "overlap": "•",
 }
 
 
@@ -188,6 +197,41 @@ def load_adjacency(adjacency_path: Path) -> Dict[str, Dict[str, List[str]]]:
     return adjacency
 
 
+def describe_components(level: str, adjacency: Mapping[str, Sequence[str]]) -> None:
+    visited: set[str] = set()
+    component_sizes: List[int] = []
+    for node in adjacency.keys():
+        if node in visited:
+            continue
+        stack = [node]
+        visited.add(node)
+        size = 0
+        while stack:
+            current = stack.pop()
+            size += 1
+            for neighbor in adjacency.get(current, []):
+                if neighbor in visited:
+                    continue
+                if neighbor not in adjacency:
+                    continue
+                visited.add(neighbor)
+                stack.append(neighbor)
+        component_sizes.append(size)
+
+    if not component_sizes:
+        LOGGER.warning("Level %s contains no connected components", level)
+        return
+
+    component_sizes.sort(reverse=True)
+    LOGGER.info(
+        "Level %s components: count=%d, largest=%d, median=%.1f",
+        level,
+        len(component_sizes),
+        component_sizes[0],
+        median(component_sizes),
+    )
+
+
 def ranges_overlap(a_min: float, a_max: float, b_min: float, b_max: float) -> bool:
     return not (a_max < b_min or b_max < a_min)
 
@@ -315,12 +359,31 @@ def plot_level(
                     xytext=(src_cx, src_cz),
                     arrowprops=dict(arrowstyle="->", color=color, linewidth=0.6, alpha=0.7),
                 )
+                label = DIRECTION_LABELS.get(direction)
+                if label:
+                    mid_x = (src_cx + dst_cx) / 2.0
+                    mid_z = (src_cz + dst_cz) / 2.0
+                    ax.text(
+                        mid_x,
+                        mid_z,
+                        label,
+                        color=color,
+                        fontsize=3,
+                        ha="center",
+                        va="center",
+                        alpha=0.8,
+                    )
                 drawn_edges.add(key)
 
     ax.set_xlim(min_x - margin, max_x + margin)
     ax.set_ylim(min_z - margin, max_z + margin)
     ax.invert_yaxis()  # align with top-left origin convention
     ax.grid(True, linewidth=0.2, color="#f0f0f0")
+    legend_handles = [
+        Line2D([], [], color=color, lw=1.5, label=direction.title())
+        for direction, color in ARROW_COLORS.items()
+    ]
+    ax.legend(handles=legend_handles, fontsize=6, loc="upper right", frameon=False)
     output_dir.mkdir(parents=True, exist_ok=True)
     figure_path = output_dir / f"saturn_connectivity_level_{level}.png"
     fig.savefig(figure_path, dpi=300)
@@ -337,6 +400,7 @@ def main() -> None:
 
     level_graphs: Dict[str, Dict[str, Dict[str, List[str]]]] = {}
     for level, level_adj in adjacency.items():
+        describe_components(level, level_adj)
         graph = build_directional_graph(level_adj, bounds)
         level_graphs[level] = graph
         plot_level(level, graph, bounds, args.vis_dir)
