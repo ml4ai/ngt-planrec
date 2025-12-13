@@ -67,6 +67,7 @@ class BoundingBox:
 
 
 def parse_args() -> argparse.Namespace:
+    """Configure the CLI interface and return parsed arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--map",
@@ -102,6 +103,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_location_bounds(map_path: Path) -> Dict[str, BoundingBox]:
+    """Load bounding boxes for every location defined in the geometry JSON."""
     data = json.loads(map_path.read_text())
     locations: List[Mapping[str, object]] = data.get("locations", [])
     bounds: Dict[str, BoundingBox] = {}
@@ -145,6 +147,7 @@ def load_location_bounds(map_path: Path) -> Dict[str, BoundingBox]:
 
 
 def parse_bounds(bounds: Mapping[str, object]) -> Optional[BoundingBox]:
+    """Convert a coordinate list into a `BoundingBox`, if possible."""
     coord_entries = bounds.get("coordinates")
     if not isinstance(coord_entries, Sequence):
         return None
@@ -176,6 +179,7 @@ def parse_bounds(bounds: Mapping[str, object]) -> Optional[BoundingBox]:
 
 
 def union_boxes(boxes: Sequence[BoundingBox]) -> BoundingBox:
+    """Create the smallest box that fully contains every child box."""
     min_x = min(box.min_x for box in boxes)
     max_x = max(box.max_x for box in boxes)
     min_z = min(box.min_z for box in boxes)
@@ -184,6 +188,7 @@ def union_boxes(boxes: Sequence[BoundingBox]) -> BoundingBox:
 
 
 def load_adjacency(adjacency_path: Path) -> Dict[str, Dict[str, List[str]]]:
+    """Load level-indexed adjacency data from disk."""
     data = json.loads(adjacency_path.read_text())
     adjacency: Dict[str, Dict[str, List[str]]] = {}
     for level, mapping in data.items():
@@ -199,6 +204,7 @@ def load_adjacency(adjacency_path: Path) -> Dict[str, Dict[str, List[str]]]:
 
 
 def connected_components(adjacency: Mapping[str, Sequence[str]]) -> List[List[str]]:
+    """Compute connected components treating edges as undirected."""
     visited: set[str] = set()
     components: List[List[str]] = []
     for node in adjacency.keys():
@@ -223,6 +229,7 @@ def connected_components(adjacency: Mapping[str, Sequence[str]]) -> List[List[st
 
 
 def describe_components(level: str, components: Sequence[Sequence[str]]) -> None:
+    """Log coarse statistics about the component structure for a level."""
     if not components:
         LOGGER.warning("Level %s contains no connected components", level)
         return
@@ -238,10 +245,12 @@ def describe_components(level: str, components: Sequence[Sequence[str]]) -> None
 
 
 def ranges_overlap(a_min: float, a_max: float, b_min: float, b_max: float) -> bool:
+    """Return True if the closed intervals overlap."""
     return not (a_max < b_min or b_max < a_min)
 
 
 def infer_direction(src: BoundingBox, dst: BoundingBox) -> Direction:
+    """Infer the dominant cardinal direction between two rectangles."""
     same_x = ranges_overlap(src.min_x, src.max_x, dst.min_x, dst.max_x)
     same_z = ranges_overlap(src.min_z, src.max_z, dst.min_z, dst.max_z)
 
@@ -271,6 +280,7 @@ def build_directional_graph(
     adjacency: Mapping[str, Mapping[str, Sequence[str]]],
     bounds: Mapping[str, BoundingBox],
 ) -> Dict[str, Dict[str, List[str]]]:
+    """Attach inferred orientations to each adjacency list."""
     graph: Dict[str, Dict[str, List[str]]] = {}
     for node, neighbors in adjacency.items():
         src_bounds = bounds.get(node)
@@ -299,6 +309,7 @@ def save_graph(
     map_path: Path,
     adjacency_path: Path,
 ) -> None:
+    """Persist the directional graph along with provenance metadata."""
     payload = {
         "levels": level_graphs,
         "metadata": {
@@ -318,6 +329,7 @@ def plot_level(
     components: Sequence[Sequence[str]],  # kept for logging context, unused
     output_dir: Path,
 ) -> None:
+    """Render a rectangular overview of one level's connectivity."""
     level_bounds = {node: bounds[node] for node in graph.keys() if node in bounds}
     if not level_bounds:
         LOGGER.warning("No drawable bounds found for level %s", level)
